@@ -1,0 +1,38 @@
+-- // Feyk Loader – Bluelock Rivals Only
+local PlaceId = game.PlaceId
+
+-- Only supported game for now
+local SupportedGames = {
+    [8737899170] = "https://raw.githubusercontent.com/FeykHere/FeykhubBlr/refs/heads/main/FeykhubBLR"
+}
+
+-- Notification helper
+local function Notify(title, text, duration)
+    pcall(function()
+        game.StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = duration or 5
+        })
+    end)
+end
+
+-- Script loader
+local function LoadScript(url)
+    local success, result = pcall(function()
+        loadstring(game:HttpGet(url))()
+    end)
+    if not success then
+        warn("Script failed to load:", result)
+        Notify("Feyk Loader", "Error loading script.", 5)
+    end
+end
+
+-- Main loader
+if SupportedGames[PlaceId] then
+    Notify("Feyk Loader", "Game is Supported! Loading...", 4)
+    task.wait(2)
+    LoadScript(SupportedGames[PlaceId])
+else
+    Notify("Feyk Loader", "Game is NOT Supported!\nCheck our Discord for supported Games.", 6)
+end
