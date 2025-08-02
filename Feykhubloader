@@ -4,6 +4,7 @@ local PlaceId = game.PlaceId
 -- Only supported game for now
 local SupportedGames = {
     [18668065416] = "https://raw.githubusercontent.com/FeykHere/FeykhubBlr/refs/heads/main/FeykhubBLR"
+    [17516596118] = "https://raw.githubusercontent.com/FeykHere/FeykhubHypershot/refs/heads/main/Feykhubhypershot"
 }
 
 -- Notification helper
