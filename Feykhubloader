@@ -1,10 +1,10 @@
--- // Feyk Loader – Bluelock Rivals Only
-local PlaceId = game.PlaceId
+-- // Feyk Loader – Supports Hypershot & Bluelock Rivals
+local GameId = game.GameId
 
--- Only supported game for now
+-- Supported games by GameId
 local SupportedGames = {
-    [18668065416] = "https://raw.githubusercontent.com/FeykHere/FeykhubBlr/refs/heads/main/FeykhubBLR",
-    [17516596118] = "https://raw.githubusercontent.com/FeykHere/FeykhubHypershot/refs/heads/main/Feykhubhypershot"
+    [5995470825] = "https://raw.githubusercontent.com/FeykHere/FeykhubHypershot/refs/heads/main/Feykhubhypershot", -- Hypershot
+    [18668065416] = "https://raw.githubusercontent.com/FeykHere/FeykhubBlr/refs/heads/main/FeykhubBLR" -- BLR lobby (if needed by PlaceId)
 }
 
 -- Notification helper
@@ -30,10 +30,10 @@ local function LoadScript(url)
 end
 
 -- Main loader
-if SupportedGames[PlaceId] then
-    Notify("Feyk Loader", "Game is Supported! Loading...", 4)
+if SupportedGames[GameId] then
+    Notify("Feyk Loader", "Supported Game Detected! Loading...", 4)
     task.wait(2)
-    LoadScript(SupportedGames[PlaceId])
+    LoadScript(SupportedGames[GameId])
 else
-    Notify("Feyk Loader", "Game is NOT Supported!\nCheck our Discord for supported Games.", 6)
+    Notify("Feyk Loader", "Game is NOT Supported!\nCheck our Discord for supported games.", 6)
 end
