@@ -4,7 +4,7 @@ local GameId = game.GameId
 -- Supported games by GameId
 local SupportedGames = {
     [5995470825] = "https://raw.githubusercontent.com/FeykHere/FeykhubHypershot/refs/heads/main/Feykhubhypershot", -- Hypershot
-    [18668065416] = "https://raw.githubusercontent.com/FeykHere/FeykhubBlr/refs/heads/main/FeykhubBLR" -- BLR lobby (if needed by PlaceId)
+    [18668065416] = "https://raw.githubusercontent.com/FeykHere/FeykhubBlr/refs/heads/main/FeykhubBLR" -- Bluelock Rivals
 }
 
 -- Notification helper
