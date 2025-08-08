@@ -19,7 +19,7 @@ local BluelockPlaceIds = {
 local ScriptURL = nil
 
 if HypershotPlaceIds[PlaceId] then
-    ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykhubHypershot/main/Feykhubhypershot"
+    ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykhubHypershot/refs/heads/main/FeykHubHypershotMain.lua"
 elseif BluelockPlaceIds[PlaceId] then
     ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykhubBlr/main/FeykhubBLR"
 end
