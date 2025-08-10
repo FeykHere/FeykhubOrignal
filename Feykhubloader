@@ -19,9 +19,9 @@ local BluelockPlaceIds = {
 local ScriptURL = nil
 
 if HypershotPlaceIds[PlaceId] then
-    ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykhubHypershot/refs/heads/main/FeykHubHypershotMain.lua"
+    ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykHubMain/refs/heads/main/FeykhubHypershot.Lua"
 elseif BluelockPlaceIds[PlaceId] then
-    ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykhubBlr/main/FeykhubBLR"
+    ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykHubMain/refs/heads/main/FeykhubBLRlua.lua"
 end
 
 -- Notification helper
