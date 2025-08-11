@@ -3,16 +3,21 @@
 local PlaceId = game.PlaceId
 print("Detected PlaceId:", PlaceId)
 
--- Hypershot PlaceIds
+-- Hypershot
 local HypershotPlaceIds = {
     [17516596118] = true, 
     [10842855952] = true, 
     [108428559529058] = true 
 }
 
--- Bluelock Rivals main place
+-- Bluelock Rivals
 local BluelockPlaceIds = {
     [18668065416] = true 
+}
+
+-- Forsaken 
+local ForsakenPlaceIds = {
+    [18687417158] = true
 }
 
 -- Script selector
@@ -22,6 +27,8 @@ if HypershotPlaceIds[PlaceId] then
     ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykHubMain/refs/heads/main/FeykhubHyperShotLua.lua"
 elseif BluelockPlaceIds[PlaceId] then
     ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykHubMain/refs/heads/main/FeykhubBLRlua.lua"
+elseif ForsakenPlaceIds[Placeid] then
+ScriptURL = ""
 end
 
 -- Notification helper
