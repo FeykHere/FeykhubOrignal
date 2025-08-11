@@ -28,7 +28,7 @@ if HypershotPlaceIds[PlaceId] then
 elseif BluelockPlaceIds[PlaceId] then
     ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykHubMain/refs/heads/main/FeykhubBLRlua.lua"
 elseif ForsakenPlaceIds[Placeid] then
-ScriptURL = ""
+ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykHubMain/refs/heads/main/FeykhubForsakenLua.lua"
 end
 
 -- Notification helper
