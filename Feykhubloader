@@ -27,7 +27,7 @@ if HypershotPlaceIds[PlaceId] then
     ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykHubMain/refs/heads/main/FeykhubHyperShotLua.lua"
 elseif BluelockPlaceIds[PlaceId] then
     ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykHubMain/refs/heads/main/FeykhubBLRlua.lua"
-elseif ForsakenPlaceIds[Placeid] then
+elseif ForsakenPlaceIds[PlaceId] then
 ScriptURL = "https://raw.githubusercontent.com/FeykHere/FeykHubMain/refs/heads/main/FeykhubForsakenLua.lua"
 end
 
