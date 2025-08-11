@@ -7,7 +7,8 @@ print("Detected PlaceId:", PlaceId)
 local HypershotPlaceIds = {
     [17516596118] = true, 
     [10842855952] = true, 
-    [108428559529058] = true 
+    [108428559529058] = true,
+    [100040622766961] = true
 }
 
 -- Bluelock Rivals
