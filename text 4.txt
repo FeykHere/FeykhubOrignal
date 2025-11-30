@@ -1,7 +1,7 @@
 --// CONFIG
 local SavedKey = "FEYKX-9LPQZ-A7M4R-XZ19Q-RF8KT"        -- << YOUR KEY
 local KeyLink = "https://direct-link.net/1345659/k575K8FaReTO"   -- << GET KEY LINK
-local CorrectKeyScriptURL = "https://raw.githubusercontent.com/SkibidiHub111/No1I/refs/heads/main/Forge" 
+local CorrectKeyScriptURL = "https://raw.githubusercontent.com/FeykHere/Test22/refs/heads/main/DupeX.Txt" 
 -- << SCRIPT TO EXECUTE WHEN KEY IS CORRECT
 
 --// UI INSTANCE
