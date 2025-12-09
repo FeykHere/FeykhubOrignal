@@ -1,4 +1,4 @@
--- Forge main script
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
@@ -33,12 +33,7 @@ local Window = Rayfield:CreateWindow({
 	LoadingTitle = "The Forge Automation V1.0",
 	LoadingSubtitle = "By Nisulrocks",
 	ShowText = "The Forge",
-	ToggleUIKeybind = "K",
-    Discord = {
-      Enabled = false,
-      Invite = "wN85KUq6nD",
-      RememberJoins = true 
-    },
+	ToggleUIKeybind = "K"
 	ConfigurationSaving = {
 		Enabled = true,
 		FolderName = "TheForgeNisulrocks",
@@ -2694,3 +2689,4 @@ end
 
 
 end)
+
