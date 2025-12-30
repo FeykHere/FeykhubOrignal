@@ -1,0 +1,845 @@
+-- Forsaken (cleaned & fixed) - Flash Hub | Forsaken
+-- Changes:
+--  - Unified connection manager: Connections store tables with a Disconnect() method.
+--  - CreateTicker helper for periodic tasks (uses RunService.Heartbeat, no task.wait inside callbacks).
+--  - Separate highlight groups for Killers/Survivors.
+--  - Store original hitbox properties and restore on disable.
+--  - Replace task.spawn loops that were stored in Connections with tickers or coroutines started from tickers.
+--  - Guards added for exploit-only functions (fireproximityprompt, setclipboard, VirtualInputManager).
+--  - Reduced excessive loop frequency and removed redundant assignments.
+
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Connection management
+local Connections = {} -- maps name -> { Disconnect = function() end }
+local Highlights = {
+    Killers = {},
+    Survivors = {},
+}
+local ESPConnections = {}
+
+local SprintingModule
+
+local function GetSprintModule()
+    if not SprintingModule then
+        pcall(function()
+            SprintingModule = require(ReplicatedStorage.Systems.Character.Game.Sprinting)
+        end)
+    end
+    return SprintingModule
+end
+
+local function CreateConnection(name, disconnectable)
+    -- disconnect existing
+    if Connections[name] and type(Connections[name].Disconnect) == "function" then
+        pcall(function() Connections[name].Disconnect() end)
+    end
+    -- ensure disconnectable is a table with Disconnect()
+    if type(disconnectable) ~= "table" or type(disconnectable.Disconnect) ~= "function" then
+        error(("CreateConnection expects a table with Disconnect() for %s"):format(tostring(name)))
+    end
+    Connections[name] = disconnectable
+    return disconnectable
+end
+
+local function DisconnectConnection(name)
+    local entry = Connections[name]
+    if entry and type(entry.Disconnect) == "function" then
+        pcall(function() entry:Disconnect() end)
+    end
+    Connections[name] = nil
+end
+
+-- Ticker helper: runs fn at roughly 'interval' seconds using Heartbeat, safe to pcall inside
+local function CreateTicker(name, interval, fn)
+    DisconnectConnection(name)
+    local acc = 0
+    local conn
+    conn = RunService.Heartbeat:Connect(function(dt)
+        acc = acc + dt
+        if acc >= interval then
+            acc = acc - interval
+            local ok, err = pcall(fn)
+            if not ok then
+                warn(("Ticker %s error: %s"):format(tostring(name), tostring(err)))
+            end
+        end
+    end)
+    CreateConnection(name, {
+        Disconnect = function()
+            if conn and conn.Disconnect then
+                pcall(function() conn:Disconnect() end)
+            end
+        end
+    })
+end
+
+local function GetCharacter()
+    return LocalPlayer and LocalPlayer.Character
+end
+
+local function GetHumanoid()
+    local char = GetCharacter()
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function GetHumanoidRootPart()
+    local char = GetCharacter()
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+-- Highlight utilities
+local function ClearHighlightGroup(groupName)
+    local list = Highlights[groupName]
+    if not list then return end
+    for _, highlight in pairs(list) do
+        if highlight then
+            pcall(function() highlight:Destroy() end)
+        end
+    end
+    Highlights[groupName] = {}
+end
+
+local function CreateKillerESP()
+    ClearHighlightGroup("Killers")
+
+    local playersFolder = Workspace:FindFirstChild("Players")
+    if not playersFolder then return end
+
+    local killersFolder = playersFolder:FindFirstChild("Killers")
+    if not killersFolder then return end
+
+    for _, model in ipairs(killersFolder:GetChildren()) do
+        if model:IsA("Model") and model:FindFirstChild("HumanoidRootPart") then
+            local highlight = Instance.new("Highlight")
+            highlight.Adornee = model
+            highlight.FillColor = Color3.fromRGB(255, 0, 0)
+            highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+            highlight.FillTransparency = 0.7
+            highlight.OutlineTransparency = 0
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            highlight.Parent = model
+            table.insert(Highlights.Killers, highlight)
+        end
+    end
+end
+
+local function CreateSurvivorESP()
+    ClearHighlightGroup("Survivors")
+
+    local playersFolder = Workspace:FindFirstChild("Players")
+    if not playersFolder then return end
+
+    local survivorsFolder = playersFolder:FindFirstChild("Survivors")
+    if not survivorsFolder then return end
+
+    for _, model in ipairs(survivorsFolder:GetChildren()) do
+        if model:IsA("Model") and model:FindFirstChild("HumanoidRootPart") then
+            local highlight = Instance.new("Highlight")
+            highlight.Adornee = model
+            highlight.FillColor = Color3.fromRGB(0, 255, 0)
+            highlight.OutlineColor = Color3.fromRGB(0, 255, 0)
+            highlight.FillTransparency = 0.7
+            highlight.OutlineTransparency = 0
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            highlight.Parent = model
+            table.insert(Highlights.Survivors, highlight)
+        end
+    end
+end
+
+-- Store original hitbox properties to restore on disable
+local OriginalHitboxes = {} -- [hrp] = { Size = Vector3, Transparency = number, CanCollide = bool }
+
+-- UI
+local Window = WindUI:CreateWindow({
+    Title = "Flash Hub | Forsaken",
+    Icon = "star",
+    Author = "Leakg0d & EesaBoxXD (patched)",
+    Folder = "Flash Hub | Forsaken",
+    Size = UDim2.new(0, 500, 0, 420),
+    Theme = "Midnight",
+    HasOutline = true,
+})
+
+Window:EditOpenButton({
+    Title = "Flash Hub - Open",
+    Icon = "monitor",
+    CornerRadius = UDim.new(0, 6),
+    StrokeThickness = 2,
+    Draggable = true,
+})
+
+-- Preload sprint module safely
+task.spawn(GetSprintModule)
+
+local StaminaTab = Window:Tab({
+    Title = "Stamina Settings",
+    Icon = "footprints",
+})
+
+-- Infinity Stamina: use ticker to refill stamina periodically
+StaminaTab:Toggle({
+    Title = "Infinity Stamina",
+    Default = false,
+    Callback = function(enabled)
+        if enabled then
+            CreateTicker("InfiniteStamina", 0.1, function()
+                local module = GetSprintModule()
+                if module and module.MaxStamina then
+                    -- only top up stamina
+                    pcall(function() module.Stamina = module.MaxStamina end)
+                end
+            end)
+        else
+            DisconnectConnection("InfiniteStamina")
+        end
+    end,
+})
+
+StaminaTab:Slider({
+    Title = "Max Stamina",
+    Suffix = " Max",
+    Value = {
+        Min = 1,
+        Default = 100,
+        Max = 500,
+    },
+    Step = 1,
+    Callback = function(value)
+        local module = GetSprintModule()
+        if module then
+            pcall(function() module.MaxStamina = tonumber(value) or 1 end)
+        end
+    end,
+})
+
+StaminaTab:Slider({
+    Title = "Sprint Speed",
+    Suffix = " S",
+    Value = {
+        Min = 1,
+        Default = 20,
+        Max = 40,
+    },
+    Step = 1,
+    Callback = function(value)
+        local module = GetSprintModule()
+        if module then
+            pcall(function() module.SprintSpeed = tonumber(value) or 1 end)
+        end
+    end,
+})
+
+StaminaTab:Slider({
+    Title = "Stamina Gain",
+    Suffix = " per sec",
+    Value = {
+        Min = 1,
+        Default = 10,
+        Max = 500,
+    },
+    Step = 1,
+    Callback = function(value)
+        local module = GetSprintModule()
+        if module then
+            pcall(function() module.StaminaGain = tonumber(value) or 1 end)
+        end
+    end,
+})
+
+StaminaTab:Slider({
+    Title = "Stamina Drain",
+    Suffix = " per sec",
+    Value = {
+        Min = 0,
+        Default = 5,
+        Max = 100,
+    },
+    Step = 1,
+    Callback = function(value)
+        local module = GetSprintModule()
+        if module then
+            pcall(function() module.StaminaDrain = tonumber(value) or 0 end)
+        end
+    end,
+})
+
+StaminaTab:Slider({
+    Title = "Regen Delay",
+    Suffix = " sec",
+    Value = {
+        Min = 0,
+        Default = 2,
+        Max = 5,
+    },
+    Step = 0.1,
+    Callback = function(value)
+        local module = GetSprintModule()
+        if module then
+            pcall(function() module.StaminaRegenDelay = tonumber(value) or 0 end)
+        end
+    end,
+})
+
+StaminaTab:Button({
+    Title = "Reset to Default",
+    Callback = function()
+        local module = GetSprintModule()
+        if module then
+            pcall(function()
+                module.MaxStamina = 100
+                module.SprintSpeed = 20
+                module.StaminaGain = 10
+                module.StaminaDrain = 5
+                module.StaminaRegenDelay = 2
+            end)
+        end
+    end,
+})
+
+local ESPTab = Window:Tab({
+    Title = "ESP Characters",
+    Icon = "eye",
+})
+
+ESPTab:Toggle({
+    Title = "Killers ESP",
+    Default = false,
+    Callback = function(enabled)
+        if enabled then
+            CreateKillerESP()
+            CreateTicker("KillerESP", 5, CreateKillerESP)
+        else
+            DisconnectConnection("KillerESP")
+            ClearHighlightGroup("Killers")
+        end
+    end,
+})
+
+ESPTab:Toggle({
+    Title = "Survivors ESP",
+    Default = false,
+    Callback = function(enabled)
+        if enabled then
+            CreateSurvivorESP()
+            CreateTicker("SurvivorESP", 5, CreateSurvivorESP)
+        else
+            DisconnectConnection("SurvivorESP")
+            ClearHighlightGroup("Survivors")
+        end
+    end,
+})
+
+local AutoBlockTab = Window:Tab({
+    Title = "Auto Block",
+    Icon = "shield",
+})
+
+-- Auto Block: uses a small interval ticker
+AutoBlockTab:Toggle({
+    Title = "Auto Block",
+    Default = false,
+    Desc = "Automatically blocks when killer is near",
+    Callback = function(enabled)
+        if enabled then
+            CreateTicker("AutoBlock", 0.12, function()
+                local hrp = GetHumanoidRootPart()
+                if not hrp then return end
+
+                local playersFolder = Workspace:FindFirstChild("Players")
+                if not playersFolder then return end
+
+                local killersFolder = playersFolder:FindFirstChild("Killers")
+                if not killersFolder then return end
+
+                for _, killer in ipairs(killersFolder:GetChildren()) do
+                    if killer:IsA("Model") then
+                        local killerHRP = killer:FindFirstChild("HumanoidRootPart")
+                        if killerHRP then
+                            local distance = (killerHRP.Position - hrp.Position).Magnitude
+                            if distance <= 15 then
+                                -- VirtualInputManager is exploit-only; guard it
+                                pcall(function()
+                                    local ok, vim = pcall(function() return game:GetService("VirtualInputManager") end)
+                                    if ok and vim and vim.SendKeyEvent then
+                                        vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+                                        task.wait(0.05)
+                                        vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+                                    end
+                                end)
+                                -- If VirtualInputManager isn't available, attempt InputBegan simulation (best-effort)
+                            end
+                        end
+                    end
+                end
+            end)
+        else
+            DisconnectConnection("AutoBlock")
+        end
+    end,
+})
+
+local MiscTab = Window:Tab({
+    Title = "Misc",
+    Icon = "gift",
+})
+
+MiscTab:Toggle({
+    Title = "Fullbright",
+    Default = false,
+    Callback = function(enabled)
+        if enabled then
+            Lighting.Brightness = 2
+            Lighting.ClockTime = 12
+            Lighting.GlobalShadows = false
+            Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+            Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+        else
+            Lighting.Brightness = 1
+            Lighting.ClockTime = 14
+            Lighting.GlobalShadows = true
+            Lighting.Ambient = Color3.fromRGB(0, 0, 0)
+            Lighting.OutdoorAmbient = Color3.fromRGB(127, 127, 127)
+        end
+    end,
+})
+
+MiscTab:Slider({
+    Title = "FOV",
+    Suffix = "°",
+    Value = {
+        Min = 60,
+        Default = 70,
+        Max = 120,
+    },
+    Step = 1,
+    Callback = function(value)
+        if Camera then
+            Camera.FieldOfView = value
+        end
+    end,
+})
+
+-- Walk Speed: uses a ticker to apply current walk speed value
+local WalkSpeedValue = 16
+MiscTab:Slider({
+    Title = "Walk Speed",
+    Suffix = " Speed",
+    Value = {
+        Min = 16,
+        Default = 16,
+        Max = 100,
+    },
+    Step = 1,
+    Callback = function(value)
+        WalkSpeedValue = tonumber(value) or 16
+        -- create the ticker if not exists
+        if not Connections["WalkSpeed"] then
+            CreateTicker("WalkSpeed", 0.1, function()
+                local humanoid = GetHumanoid()
+                if humanoid and humanoid.Parent then
+                    pcall(function() humanoid.WalkSpeed = WalkSpeedValue end)
+                end
+            end)
+        end
+    end,
+})
+
+MiscTab:Button({
+    Title = "No Fog",
+    Callback = function()
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 0
+
+        WindUI:Notify({
+            Title = "Fog Removed",
+            Content = "Fog has been removed successfully!",
+        })
+    end,
+})
+
+local AutoStunTab = Window:Tab({
+    Title = "Auto Stun",
+    Icon = "zap",
+})
+
+-- Auto Stun: fires remote if killer in range
+AutoStunTab:Toggle({
+    Title = "Auto Stun Killer",
+    Default = false,
+    Desc = "Automatically stuns killer when in range",
+    Callback = function(enabled)
+        if enabled then
+            CreateTicker("AutoStun", 0.2, function()
+                local hrp = GetHumanoidRootPart()
+                if not hrp then return end
+
+                local playersFolder = Workspace:FindFirstChild("Players")
+                if not playersFolder then return end
+
+                local killersFolder = playersFolder:FindFirstChild("Killers")
+                if not killersFolder then return end
+
+                for _, killer in ipairs(killersFolder:GetChildren()) do
+                    if killer:IsA("Model") then
+                        local killerHRP = killer:FindFirstChild("HumanoidRootPart")
+                        if killerHRP then
+                            local distance = (killerHRP.Position - hrp.Position).Magnitude
+                            if distance <= 10 then
+                                local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+                                if remotes then
+                                    local stunEvent = remotes:FindFirstChild("Stun")
+                                    if stunEvent and stunEvent.FireServer then
+                                        pcall(function() stunEvent:FireServer() end)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        else
+            DisconnectConnection("AutoStun")
+        end
+    end,
+})
+
+local RandomTab = Window:Tab({
+    Title = "Random",
+    Icon = "crosshair",
+})
+
+RandomTab:Button({
+    Title = "Remove Doors",
+    Callback = function()
+        local map = Workspace:FindFirstChild("Map")
+        if map then
+            local ingame = map:FindFirstChild("Ingame")
+            if ingame then
+                local mapFolder = ingame:FindFirstChild("Map")
+                if mapFolder then
+                    for _, obj in pairs(mapFolder:GetDescendants()) do
+                        if obj:IsA("BasePart") and obj.Name:lower():find("door") then
+                            pcall(function() obj:Destroy() end)
+                        end
+                    end
+                end
+            end
+        end
+
+        WindUI:Notify({
+            Title = "Doors Removed",
+            Content = "All doors have been removed!",
+        })
+    end,
+})
+
+RandomTab:Button({
+    Title = "Anti AFK",
+    Callback = function()
+        local vu = game:GetService("VirtualUser")
+        -- Use a persistent connection to avoid duplicates
+        if not Connections["AntiAFK"] then
+            local conn = LocalPlayer.Idled:Connect(function()
+                pcall(function()
+                    vu:CaptureController()
+                    vu:ClickButton2(Vector2.new())
+                end)
+            end)
+            CreateConnection("AntiAFK", {
+                Disconnect = function()
+                    if conn and conn.Disconnect then pcall(function() conn:Disconnect() end) end
+                end
+            })
+        end
+
+        WindUI:Notify({
+            Title = "Anti AFK",
+            Content = "Anti AFK enabled!",
+        })
+    end,
+})
+
+RandomTab:Button({
+    Title = "Reset Character",
+    Callback = function()
+        local humanoid = GetHumanoid()
+        if humanoid then
+            pcall(function() humanoid.Health = 0 end)
+        end
+    end,
+})
+
+local HitboxTab = Window:Tab({
+    Title = "Hitbox Expander",
+    Icon = "target",
+})
+
+-- Hitbox size state
+local HitboxSizeValue = 10
+
+HitboxTab:Toggle({
+    Title = "Expand Killer Hitboxes",
+    Default = false,
+    Callback = function(enabled)
+        if enabled then
+            -- Apply and store originals periodically
+            CreateTicker("HitboxExpander", 0.2, function()
+                local playersFolder = Workspace:FindFirstChild("Players")
+                if not playersFolder then return end
+
+                local killersFolder = playersFolder:FindFirstChild("Killers")
+                if not killersFolder then return end
+
+                for _, killer in ipairs(killersFolder:GetChildren()) do
+                    if killer:IsA("Model") then
+                        local killerHRP = killer:FindFirstChild("HumanoidRootPart")
+                        if killerHRP then
+                            if not OriginalHitboxes[killerHRP] then
+                                OriginalHitboxes[killerHRP] = {
+                                    Size = killerHRP.Size,
+                                    Transparency = killerHRP.Transparency,
+                                    CanCollide = killerHRP.CanCollide,
+                                }
+                            end
+                            pcall(function()
+                                killerHRP.Size = Vector3.new(HitboxSizeValue, HitboxSizeValue, HitboxSizeValue)
+                                killerHRP.Transparency = 0.7
+                                killerHRP.CanCollide = false
+                            end)
+                        end
+                    end
+                end
+            end)
+        else
+            DisconnectConnection("HitboxExpander")
+            -- restore originals
+            for hrp, props in pairs(OriginalHitboxes) do
+                if hrp and hrp.Parent then
+                    pcall(function()
+                        hrp.Size = props.Size or Vector3.new(2, 2, 1)
+                        hrp.Transparency = (props.Transparency ~= nil) and props.Transparency or 1
+                        hrp.CanCollide = (props.CanCollide ~= nil) and props.CanCollide or false
+                    end)
+                end
+            end
+            OriginalHitboxes = {}
+        end
+    end,
+})
+
+HitboxTab:Slider({
+    Title = "Hitbox Size",
+    Suffix = " Studs",
+    Value = {
+        Min = 1,
+        Default = 10,
+        Max = 50,
+    },
+    Step = 1,
+    Callback = function(value)
+        HitboxSizeValue = tonumber(value) or 10
+        -- ensure ticker exists when slider adjusted
+        if Connections["HitboxExpander"] then
+            -- nothing else needed; ticker will apply new value on next tick
+        end
+    end,
+})
+
+local GeneratorTab = Window:Tab({
+    Title = "Generator",
+    Icon = "battery-charging",
+})
+
+GeneratorTab:Toggle({
+    Title = "Auto Fix Generators",
+    Default = false,
+    Desc = "Automatically fixes all generators",
+    Callback = function(enabled)
+        if enabled then
+            -- every 1s, iterate generators and initiate a coroutine to interact with each generator safely
+            CreateTicker("AutoFixGen", 1, function()
+                pcall(function()
+                    local map = Workspace:FindFirstChild("Map")
+                    if not map then return end
+                    local ingame = map:FindFirstChild("Ingame")
+                    if not ingame then return end
+                    local mapFolder = ingame:FindFirstChild("Map")
+                    if not mapFolder then return end
+
+                    for _, obj in pairs(mapFolder:GetChildren()) do
+                        if type(obj.Name) == "string" and obj.Name:find("Generator") then
+                            local hrp = GetHumanoidRootPart()
+                            if hrp then
+                                -- start a coroutine per generator to do the teleport, prompt, and restore
+                                coroutine.wrap(function()
+                                    local originalPos = hrp.CFrame
+                                    -- teleport to generator (if Part or has CFrame)
+                                    local targetCFrame
+                                    if obj:IsA("Model") and obj:FindFirstChild("Part") then
+                                        targetCFrame = obj.Part.CFrame
+                                    elseif obj:IsA("BasePart") then
+                                        targetCFrame = obj.CFrame
+                                    elseif obj.PrimaryPart then
+                                        targetCFrame = obj.PrimaryPart.CFrame
+                                    end
+                                    if targetCFrame then
+                                        pcall(function() hrp.CFrame = targetCFrame end)
+                                        task.wait(0.4)
+                                        local prox = obj:FindFirstChildOfClass("ProximityPrompt")
+                                        if prox then
+                                            -- prefer built-in fireproximityprompt if present, else use :InputHoldBegin/End if appropriate
+                                            if type(fireproximityprompt) == "function" then
+                                                pcall(function() fireproximityprompt(prox) end)
+                                            else
+                                                pcall(function()
+                                                    -- Attempt to trigger prompt (best-effort)
+                                                    prox:InputHoldBegin()
+                                                    task.wait(0.1)
+                                                    prox:InputHoldEnd()
+                                                end)
+                                            end
+                                        end
+                                        task.wait(6) -- give time for fix to complete
+                                        pcall(function() hrp.CFrame = originalPos end)
+                                    end
+                                end)()
+                            end
+                        end
+                    end
+                end)
+            end)
+
+            WindUI:Notify({
+                Title = "Auto Fix Generators",
+                Content = "Started auto fixing generators!",
+            })
+        else
+            DisconnectConnection("AutoFixGen")
+        end
+    end,
+})
+
+local TeleportTab = Window:Tab({
+    Title = "Teleport",
+    Icon = "cable",
+})
+
+TeleportTab:Button({
+    Title = "Teleport to Generators",
+    Callback = function()
+        local map = Workspace:FindFirstChild("Map")
+        if map then
+            local ingame = map:FindFirstChild("Ingame")
+            if ingame then
+                local mapFolder = ingame:FindFirstChild("Map")
+                if mapFolder then
+                    for _, obj in pairs(mapFolder:GetChildren()) do
+                        if type(obj.Name) == "string" and obj.Name:find("Generator") and obj:FindFirstChild("Part") then
+                            local hrp = GetHumanoidRootPart()
+                            if hrp then
+                                pcall(function() hrp.CFrame = obj.Part.CFrame + Vector3.new(0, 5, 0) end)
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end,
+})
+
+TeleportTab:Button({
+    Title = "Teleport to Exit",
+    Callback = function()
+        local map = Workspace:FindFirstChild("Map")
+        if map then
+            local ingame = map:FindFirstChild("Ingame")
+            if ingame then
+                local mapFolder = ingame:FindFirstChild("Map")
+                if mapFolder then
+                    local exit = mapFolder:FindFirstChild("Exit") or mapFolder:FindFirstChild("Gate")
+                    if exit then
+                        local hrp = GetHumanoidRootPart()
+                        if hrp then
+                            pcall(function() hrp.CFrame = exit.CFrame + Vector3.new(0, 5, 0) end)
+                        end
+                    end
+                end
+            end
+        end
+    end,
+})
+
+TeleportTab:Button({
+    Title = "Teleport to Safe Room",
+    Callback = function()
+        local map = Workspace:FindFirstChild("Map")
+        if map then
+            local ingame = map:FindFirstChild("Ingame")
+            if ingame then
+                local mapFolder = ingame:FindFirstChild("Map")
+                if mapFolder then
+                    local safeRoom = mapFolder:FindFirstChild("SafeRoom")
+                    if safeRoom then
+                        local hrp = GetHumanoidRootPart()
+                        if hrp then
+                            pcall(function() hrp.CFrame = safeRoom.CFrame + Vector3.new(0, 5, 0) end)
+                        end
+                    end
+                end
+            end
+        end
+    end,
+})
+
+local CreditsTab = Window:Tab({
+    Title = "Credits",
+    Icon = "award",
+})
+
+CreditsTab:Section({
+    Title = "Script Information",
+})
+
+CreditsTab:Button({
+    Title = "Join Flash Hub Discord Server (Click to Copy Discord Link)",
+    Description = "Click To Copy The Discord Server Link For Flash Hub!",
+    Callback = function()
+        if type(setclipboard) == "function" then
+            pcall(function() setclipboard("https://discord.gg/6GdvDKXcmE") end)
+        end
+
+        WindUI:Notify({
+            Title = "Copied!",
+            Content = "Discord invite copied to clipboard.",
+            Duration = 3,
+        })
+    end,
+})
+
+CreditsTab:Section({
+    Title = "Credits",
+})
+
+CreditsTab:Paragraph({
+    Title = "Developers",
+    Content = "Script created by Leakg0d & EesaBoxXD\nCleaned and optimized by Claude (patched)"
+})
+
+WindUI:Notify({
+    Title = "Flash Hub | Forsaken",
+    Content = "Patched script loaded successfully!",
+    Duration = 5,
+})
