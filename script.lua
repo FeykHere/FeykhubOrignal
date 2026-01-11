@@ -45,6 +45,7 @@ local hitboxTargetPart = "Head"
 local hitboxSize = 10
 local hitboxTransparency = 0.5
 local originalHitboxSizes = {}
+local hitboxVisuals = {} -- Store forcefield objects
 
 -- Player Management Vars
 local whitelistedPlayers = {}
@@ -369,12 +370,38 @@ local function expandHitboxes()
             local part = player.Character:FindFirstChild(hitboxTargetPart)
             if part and part:IsA("BasePart") then
                 if not originalHitboxSizes[player] then
-                    originalHitboxSizes[player] = part.Size
+                    originalHitboxSizes[player] = {Size = part.Size, Transparency = part.Transparency}
                 end
+                
                 safeCall(function()
                     part.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
-                    part.Transparency = hitboxTransparency
+                    part.Transparency = 1 -- Make actual part invisible
                     part.CanCollide = false
+                    
+                    -- Visual Forcefield
+                    local visual = hitboxVisuals[player]
+                    if not visual or visual.Parent ~= part then
+                        if visual then visual:Destroy() end
+                        visual = Instance.new("Part")
+                        visual.Name = "HitboxVisual"
+                        visual.Shape = Enum.PartType.Ball
+                        visual.Material = Enum.Material.ForceField
+                        visual.CastShadow = false
+                        visual.CanCollide = false
+                        visual.Anchored = false
+                        visual.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                        visual.CFrame = part.CFrame
+                        visual.Parent = part
+                        
+                        local weld = Instance.new("WeldConstraint")
+                        weld.Part0 = part
+                        weld.Part1 = visual
+                        weld.Parent = visual
+                        
+                        hitboxVisuals[player] = visual
+                    else
+                        visual.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                    end
                 end)
             end
         end
@@ -382,18 +409,22 @@ local function expandHitboxes()
 end
 
 local function restoreHitboxes()
-    for player, originalSize in pairs(originalHitboxSizes) do
+    for player, data in pairs(originalHitboxSizes) do
         if player and player.Character then
             local part = player.Character:FindFirstChild(hitboxTargetPart)
             if part and part:IsA("BasePart") then
                 safeCall(function()
-                    part.Size = originalSize
-                    part.Transparency = 0
+                    part.Size = data.Size
+                    part.Transparency = data.Transparency
                     part.CanCollide = true
                 end)
             end
         end
     end
+    for _, visual in pairs(hitboxVisuals) do
+        if visual then visual:Destroy() end
+    end
+    hitboxVisuals = {}
     originalHitboxSizes = {}
 end
 
@@ -543,6 +574,10 @@ local function updateTimeChanger()
         safeCall(function()
             Lighting.ClockTime = currentTime
         end)
+    else
+        safeCall(function()
+            Lighting.ClockTime = originalLightingSettings.ClockTime or 12
+        end)
     end
 end
 
@@ -562,8 +597,25 @@ local function applyGreySky()
                     obj:Destroy()
                 end
             end
-            Lighting.OutdoorAmbient = Color3.new(0.5, 0.5, 0.5)
-            Lighting.Ambient = Color3.new(0.5, 0.5, 0.5)
+            local sky = Instance.new("Sky")
+            sky.SkyboxBk = "rbxassetid://6008304405"
+            sky.SkyboxDn = "rbxassetid://6008304405"
+            sky.SkyboxFt = "rbxassetid://6008304405"
+            sky.SkyboxLf = "rbxassetid://6008304405"
+            sky.SkyboxRt = "rbxassetid://6008304405"
+            sky.SkyboxUp = "rbxassetid://6008304405"
+            sky.Parent = Lighting
+            
+            Lighting.OutdoorAmbient = Color3.new(0.2, 0.2, 0.2)
+            Lighting.Ambient = Color3.new(0.2, 0.2, 0.2)
+            Lighting.Brightness = 0.5
+        end)
+    else
+        safeCall(function()
+            for _, obj in pairs(Lighting:GetChildren()) do
+                if obj.Name == "Sky" then obj:Destroy() end
+            end
+            applyFullbright() -- Revert to current lighting state
         end)
     end
 end
@@ -869,6 +921,16 @@ CombatGroupBox:AddDropdown("Priority", {
     Text = "Target Priority",
     Callback = function(Value)
         targetPriority = Value
+    end,
+})
+
+CombatGroupBox:AddDropdown("TargetTeams", {
+    Values = allTeams,
+    Default = {"All"},
+    Multi = true,
+    Text = "Target Teams",
+    Callback = function(Values)
+        selectedTeams = Values
     end,
 })
 
